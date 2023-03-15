@@ -1,0 +1,15 @@
+version: '3.9'
+services:
+  app:
+    image: ghcr.io/yude/retro-proxy
+    build: .
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: "./.env"
+        target: "/app/.env"
+      - type: bind
+        source: "./allowed.txt"
+        target: "/app/allowed.txt"
+    ports:
+      - ${PORT}:${PORT}
