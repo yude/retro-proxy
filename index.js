@@ -5,8 +5,9 @@ const express = require('express');
 const cheerio = require('cheerio');
 const minify = require('html-minifier').minify;
 const CleanCSS = require('clean-css');
-const Jimp = require('jimp');
+const jimp = require('jimp');
 const { URL } = require('url');
+const webp = require('webp-converter')
 
 const app = express();
 
@@ -17,10 +18,10 @@ const stripJs = process.env.NO_JS;
 const minifyImages = Boolean(process.env.RESIZE_TO);
 let friendlies = [];
 try {
-  const input = fs.readFileSync(process.env.ALLOWLIST,{encoding:'utf-8'});
+  const input = fs.readFileSync(process.env.ALLOWLIST, { encoding: 'utf-8' });
   friendlies = input.trim().split('\n');
-  console.log('allow-list',friendlies);
-} catch(error) {
+  console.log('allow-list', friendlies);
+} catch (error) {
   console.error('Failed to load allow-list!');
   friendlies = [];
 }
@@ -68,67 +69,100 @@ const cssMinifyOptions = {
 };
 
 const minifyOptions = {
-  collapseBooleanAttributes:true,
-  collapseWhitespace:true,
-  processConditionalComments:true,
-  removeComments:true,
-  minifyCSS:stripCSS? false : cssMinifyOptions
+  collapseBooleanAttributes: true,
+  collapseWhitespace: true,
+  processConditionalComments: true,
+  removeComments: true,
+  minifyCSS: stripCSS ? false : cssMinifyOptions
 };
+
+const downloadFile = async (url, path) => {
+  const res = await fetch(url);
+
+  const arrayBuffer = await res.arrayBuffer();
+
+  const buffer = Buffer.from(arrayBuffer);
+  fs.writeFileSync(path, buffer);
+}
+
+async function webpToJimp(src, tempDir) {
+  if (typeof src === 'string' || src instanceof String) {
+    // Verify that the img is a webp
+    if (!src.match(/(\.webp)/gi)) return jimp.read(src)
+
+    await downloadFile(src, `${tempDir}/tmp.webp`)
+  }
+
+  // Convert the webp image to a readable format
+  await webp.dwebp(`${tempDir}/tmp.webp`, `${tempDir}/tmp.png`, '-o')
+
+  // Read the newly created image
+  const img = await jimp.read(`${tempDir}/tmp.png`)
+
+  // Delete the temporary files
+  fs.unlink(`${tempDir}/tmp.webp`, () => { })
+  fs.unlink(`${tempDir}/tmp.png`, () => { })
+
+  return img
+}
 
 app.get('*', async (req, res, next) => {
   const friendly = friendlies.some(f => req.hostname.endsWith(f));
   const url = req.originalUrl;
-  if(friendly) {
-    console.log('friendly site:',url);
+  if (friendly) {
+    console.log('friendly site:', url);
   }
 
   const upstream = await fetch(url);
   const contentType = upstream.headers.get('content-type');
-  //console.log(contentType);
-  if(contentType.startsWith('text/html')) {
+
+  if (contentType.startsWith('text/html')) {
     const imageSizes = {};
-    const text = (await upstream.text()).replace(/https:\/\//g,'http://');
+    const text = (await upstream.text()).replace(/https:\/\//g, 'http://');
     const $ = cheerio.load(text);
-    if(!friendly && stripJs) {
+    if (!friendly && stripJs) {
       $('script').remove();
-      $('noscript').after(function(index) {
+      $('noscript').after(function (index) {
         $(this).contents();
       });
       $('noscript').remove();
     }
-    if(!friendly && stripCSS) {
+    if (!friendly && stripCSS) {
       $('style').remove();
       $('link').remove();
       $('*').removeAttr('class');
       $('*').removeAttr('style');
     }
-    if(!friendly && maxInlineWidth) {
+    if (!friendly && maxInlineWidth) {
       const imgs = [];
-      $("img").each(function(index) {
+      $("img").each(function (index) {
         imgs.push(this);
       });
-      for(let img of imgs) {
+      for (let img of imgs) {
         const attrWidth = $(img).attr('width');
         const attrHeight = $(img).attr('height');
-        if(!attrWidth) {
+
+        if (!attrWidth) {
           const src = new URL($(img).attr('src'), url).href;
           try {
-            if(!imageSizes[src]) {
-              const image = await Jimp.read(src);
-              imageSizes[src] = {width:image.bitmap.width,height:image.bitmap.height};
+            if (!imageSizes[src]) {
+              // const image = await jimp.read(src);
+              const image = await webpToJimp(src, __dirname + "/tmp");
+              imageSizes[src] = { width: image.bitmap.width, height: image.bitmap.height };
             }
-            const width = Math.min(maxInlineWidth,imageSizes[src].width);
+
+            const width = Math.min(maxInlineWidth, imageSizes[src].width);
             const height = imageSizes[src].height * width / imageSizes[src].width;
-            $(this).attr('width',width);
-            $(this).attr('height',height);
-          } catch(error) {
+            $(this).attr('width', width);
+            $(this).attr('height', height);
+          } catch (error) {
             console.error(error);
           }
         } else {
-          const width = Math.min(maxInlineWidth,attrWidth);
+          const width = Math.min(maxInlineWidth, attrWidth);
           const height = attrHeight * width / attrWidth;
-          $(this).attr('width',width);
-          $(this).attr('height',height);
+          $(this).attr('width', width);
+          $(this).attr('height', height);
         }
       }
     }
@@ -140,31 +174,34 @@ app.get('*', async (req, res, next) => {
       const src = $(this).attr('src');
       $(this).attr('src',src.replace(/^https:/, 'http:'));
     });*/
-    res.set('Content-Type','text/html');
+    res.set('Content-Type', 'text/html');
     res.status(upstream.status);
-    if(!friendly) {
-      console.log('html minified',contentType,url);
-      res.send(minify($.root().html().replace(/&apos;/g,"'"),minifyOptions));
+    if (!friendly) {
+      console.log('html minified', contentType, url);
+      res.send(minify($.root().html().replace(/&apos;/g, "'"), minifyOptions));
     } else {
-      res.send($.root().html().replace(/&apos;/g,"'"));
+      res.send($.root().html().replace(/&apos;/g, "'"));
     }
-  } else if(contentType.startsWith('text/css')) {
+  } else if (contentType.startsWith('text/css')) {
     const text = await upstream.text();
-    res.set('Content-Type','text/css');
+    res.set('Content-Type', 'text/css');
     res.status(upstream.status);
     res.send(new CleanCSS(cssMinifyOptions).minify(text).styles);
-    console.log('css minified',contentType,url);
-  } else if(!friendly && minifyImages && contentType.startsWith('image/') && !contentType.includes('xml')) {
-    const image = await Jimp.read(await upstream.buffer());
-    image.resize(Math.min(maxSrcWidth,image.bitmap.width),Jimp.AUTO);
+
+    console.log('css minified', contentType, url);
+  } else if (!friendly && minifyImages && contentType.startsWith('image/') && !contentType.includes('xml')) {
+    const image = await webpToJimp(url, __dirname + "/tmp")
+    image.resize(Math.min(maxSrcWidth, image.bitmap.width), jimp.AUTO);
     image.quality(50);
+
     const output = await image.getBufferAsync('image/jpeg');
-    res.set('Content-Type','image/jpeg');
+    res.set('Content-Type', 'image/jpeg');
     res.status(upstream.status);
     res.send(output);
-    console.log('image minified',contentType,url);
+
+    console.log('image minified', contentType, url);
   } else {
-    res.set('Content-Type',contentType);
+    res.set('Content-Type', contentType);
     res.status(upstream.status);
     res.send(await upstream.buffer());
   }
@@ -176,4 +213,4 @@ if (ip != '') {
   app.listen(port);
 }
 
-console.log(`Listening on port ${port}, CSS is ${stripCSS?'disabled':'enabled'}, images are ${minifyImages?'compressed':'original quality'}`);
+console.log(`Listening on port ${port}, CSS is ${stripCSS ? 'disabled' : 'enabled'}, images are ${minifyImages ? 'compressed' : 'original quality'}`);
