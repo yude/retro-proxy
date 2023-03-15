@@ -8,6 +8,8 @@ const CleanCSS = require('clean-css');
 const jimp = require('jimp');
 const { URL } = require('url');
 const webp = require('webp-converter')
+const jschardet = require('jschardet')
+const Iconv = require('iconv').Iconv;
 
 const app = express();
 
@@ -118,7 +120,12 @@ app.get('*', async (req, res, next) => {
 
   if (contentType.startsWith('text/html')) {
     const imageSizes = {};
-    const text = (await upstream.text()).replace(/https:\/\//g, 'http://');
+    let text = (await upstream.text()).replace(/https:\/\//g, 'http://');
+    const encodingRes = jschardet.detect(text);
+    if (encodingRes.encoding == 'ISO-2022-JP') {
+      const iconv = new Iconv('ISO-2022-JP', 'UTF-8//TRANSLIT//IGNORE');
+      text = iconv.convert(text).toString();
+    }
     const $ = cheerio.load(text);
     if (!friendly && stripJs) {
       $('script').remove();
@@ -161,8 +168,12 @@ app.get('*', async (req, res, next) => {
         } else {
           const width = Math.min(maxInlineWidth, attrWidth);
           const height = attrHeight * width / attrWidth;
-          $(this).attr('width', width);
-          $(this).attr('height', height);
+          try {
+            $(this).attr('width', width);
+            $(this).attr('height', height);
+          } catch {
+            console.log("Unknown attr detected.")
+          }
         }
       }
     }

@@ -17,7 +17,9 @@
     "express": "^4.17.1",
     "file-type": "^18.2.1",
     "html-minifier": "^4.0.0",
+    "iconv": "^3.0.1",
     "jimp": "^0.16.1",
+    "jschardet": "^3.0.0",
     "node-fetch": "^2.6.1",
     "webp-converter": "^2.3.3"
   }
