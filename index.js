@@ -1,3 +1,4 @@
+try {
 require('dotenv').config();
 const fs = require('fs');
 const fetch = require('node-fetch');
@@ -225,3 +226,6 @@ if (ip != '') {
 }
 
 console.log(`Listening on port ${port}, CSS is ${stripCSS ? 'disabled' : 'enabled'}, images are ${minifyImages ? 'compressed' : 'original quality'}`);
+} catch (e) {
+  console.error(e);
+}

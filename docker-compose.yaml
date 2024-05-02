@@ -12,4 +12,4 @@ services:
         source: "./allowed.txt"
         target: "/app/allowed.txt"
     ports:
-      - ${PORT}:${PORT}
+      - 8080:8080
